@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: eeg-postgres
+    environment:
+      POSTGRES_USER: eeg
+      POSTGRES_PASSWORD: eeg
+      POSTGRES_DB: eeg
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:latest
+    container_name: eeg-minio
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio12345
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  eeg-be:
+    build:
+      context: ../eeg-be
+      dockerfile: Dockerfile
+    container_name: eeg-be
+    environment:
+      DATABASE_URL: postgresql://eeg:eeg@postgres:5432/eeg
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio12345
+      S3_BUCKET: eeg
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - minio
+    volumes:
+      - ../eeg-be/app:/app/app:rw
+
+  eeg-fe:
+    build:
+      context: ../eeg-fe
+      dockerfile: Dockerfile
+    container_name: eeg-fe
+    environment:
+      VITE_API_BASE_URL: http://localhost:8000
+    ports:
+      - "5173:5173"
+    depends_on:
+      - eeg-be
+    volumes:
+      - ../eeg-fe:/app:rw
+      - fe_node_modules:/app/node_modules
+
+  eeg-ml-pipeline:
+    build:
+      context: ../eeg-ml-pipeline
+      dockerfile: Dockerfile
+    container_name: eeg-ml-pipeline
+    environment:
+      S3_ENDPOINT: http://minio:9000
+      S3_ACCESS_KEY: minio
+      S3_SECRET_KEY: minio12345
+      S3_BUCKET: eeg
+    depends_on:
+      - minio
+    volumes:
+      - ../eeg-ml-pipeline/src:/app/src:rw
+
+volumes:
+  postgres_data:
+  minio_data:
+  fe_node_modules:
