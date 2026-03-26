@@ -76,11 +76,13 @@ services:
       S3_ACCESS_KEY: minio
       S3_SECRET_KEY: minio12345
       S3_BUCKET: eeg
+      JOB_POLL_INTERVAL_SECONDS: 2
     depends_on:
       - minio
       - postgres
     volumes:
       - ../eeg-ml-pipeline/src:/app/src:rw
+    command: ["python", "-m", "ml.worker"]
 
 volumes:
   postgres_data:
