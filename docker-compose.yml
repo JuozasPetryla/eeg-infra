@@ -47,6 +47,17 @@ services:
         condition: service_healthy
       minio:
         condition: service_started
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
     volumes:
       - ../eeg-be:/app:rw
 
@@ -78,8 +89,13 @@ services:
       S3_BUCKET: eeg
       JOB_POLL_INTERVAL_SECONDS: 2
     depends_on:
-      - minio
-      - postgres
+      minio:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      eeg-be:
+        condition: service_healthy
+    restart: unless-stopped
     volumes:
       - ../eeg-ml-pipeline/src:/app/src:rw
     command: ["python", "-m", "ml.worker"]
