@@ -33,6 +33,16 @@ Run the following commands:
 - `cd eeg-infra/`
 - `docker compose up --build -d`
 
+To run backend tests in an isolated container:
+
+- `docker compose run --rm eeg-be-test`
+
+To run backend integration tests against real Postgres and MinIO:
+
+- `docker compose run --rm eeg-be-integration-test`
+
+This uses a dedicated `postgres-integration` database and a separate MinIO bucket so it does not reset your normal local backend data.
+
 Now everything should be up and running locally
 
 ## Usage
