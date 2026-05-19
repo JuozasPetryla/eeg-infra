@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >-
+  Psich.ai single-node AWS Lightsail stack. This is the simplest low-cost setup:
+  one Lightsail instance that installs Docker, clones the repos, and runs the
+  app stack with docker compose.
+
+Parameters:
+  ProjectName:
+    Type: String
+    Default: psich-ai
+    AllowedPattern: '^[a-z0-9][a-z0-9-]{1,30}[a-z0-9]$'
+    Description: Lowercase prefix used for instance and optional bucket names.
+
+  BlueprintId:
+    Type: String
+    Default: amazon_linux_2023
+    Description: Lightsail blueprint ID.
+
+  BundleId:
+    Type: String
+    Default: small_3_0
+    AllowedValues:
+      - nano_3_0
+      - micro_3_0
+      - small_3_0
+      - medium_3_0
+    Description: >-
+      Lightsail bundle ID. small_3_0 is the recommended price/performance
+      default for this stack.
+
+  KeyPairName:
+    Type: String
+    Default: ''
+    Description: Optional Lightsail key pair name. Leave blank to use the Regional default key pair.
+
+  GitHubOwner:
+    Type: String
+    Default: JuozasPetryla
+    Description: GitHub owner or organization that hosts the eeg-* repositories.
+
+  GitBranch:
+    Type: String
+    Default: main
+    Description: Git branch to deploy from all repos.
+
+  CreateStaticIp:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Attach a static IPv4 address to the instance.
+
+  CreateBucket:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Create a small Lightsail bucket for optional object storage.
+
+  BucketBundleId:
+    Type: String
+    Default: small_1_0
+    AllowedValues:
+      - small_1_0
+      - medium_1_0
+      - large_1_0
+    Description: Bucket plan if CreateBucket is true.
+
+Conditions:
+  HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
+  UseStaticIp: !Equals [!Ref CreateStaticIp, 'true']
+  UseBucket: !Equals [!Ref CreateBucket, 'true']
+
+Resources:
+  AppInstance:
+    Type: AWS::Lightsail::Instance
+    Properties:
+      InstanceName: !Sub '${ProjectName}-app'
+      BlueprintId: !Ref BlueprintId
+      BundleId: !Ref BundleId
+      KeyPairName: !If [HasKeyPair, !Ref KeyPairName, !Ref 'AWS::NoValue']
+      Networking:
+        Ports:
+          - AccessDirection: inbound
+            AccessType: Public
+            CommonName: SSH
+            Cidrs: ['0.0.0.0/0']
+            Ipv6Cidrs: ['::/0']
+            FromPort: 22
+            ToPort: 22
+            Protocol: tcp
+          - AccessDirection: inbound
+            AccessType: Public
+            CommonName: HTTP
+            Cidrs: ['0.0.0.0/0']
+            Ipv6Cidrs: ['::/0']
+            FromPort: 80
+            ToPort: 80
+            Protocol: tcp
+          - AccessDirection: inbound
+            AccessType: Public
+            CommonName: API
+            Cidrs: ['0.0.0.0/0']
+            Ipv6Cidrs: ['::/0']
+            FromPort: 8000
+            ToPort: 8000
+            Protocol: tcp
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+        - Key: Stack
+          Value: single-node
+      UserData:
+        Fn::Sub: |
+          #!/bin/bash
+          set -euxo pipefail
+
+          dnf update -y
+          dnf install -y docker docker-compose-plugin git
+          systemctl enable --now docker
+          usermod -aG docker ec2-user
+
+          mkdir -p /srv/psich-ai
+
+          cat >/usr/local/bin/deploy-psich-ai <<'SCRIPT'
+          #!/bin/bash
+          set -euxo pipefail
+
+          BASE_DIR=/srv/psich-ai
+          OWNER='${GitHubOwner}'
+          BRANCH='${GitBranch}'
+
+          clone_or_update() {
+            local repo="$1"
+            local target="${BASE_DIR}/${repo}"
+            local url="https://github.com/${GitHubOwner}/${repo}.git"
+
+            if [ ! -d "${target}/.git" ]; then
+              git clone --depth 1 --branch "${GitBranch}" "${url}" "${target}"
+            else
+              git -C "${target}" fetch origin "${GitBranch}"
+              git -C "${target}" checkout "${GitBranch}"
+              git -C "${target}" reset --hard "origin/${GitBranch}"
+            fi
+          }
+
+          clone_or_update eeg-be
+          clone_or_update eeg-fe
+          clone_or_update eeg-infra
+          clone_or_update eeg-ml-pipeline
+
+          docker compose -f "${BASE_DIR}/eeg-infra/docker-compose.aws.yml" up --build -d
+          SCRIPT
+
+          chmod +x /usr/local/bin/deploy-psich-ai
+          /usr/local/bin/deploy-psich-ai
+
+  AppStaticIp:
+    Type: AWS::Lightsail::StaticIp
+    Condition: UseStaticIp
+    Properties:
+      StaticIpName: !Sub '${ProjectName}-ip'
+      AttachedTo: !Ref AppInstance
+
+  AppBucket:
+    Type: AWS::Lightsail::Bucket
+    Condition: UseBucket
+    Properties:
+      BucketName: !Sub '${ProjectName}-bucket'
+      BundleId: !Ref BucketBundleId
+      ObjectVersioning: false
+      AccessRules:
+        GetObject: private
+        AllowPublicOverrides: false
+      ResourcesReceivingAccess:
+        - !Ref AppInstance
+      Tags:
+        - Key: Project
+          Value: !Ref ProjectName
+
+Outputs:
+  InstanceName:
+    Value: !Ref AppInstance
+    Description: Lightsail instance name.
+
+  InstancePublicIp:
+    Value: !GetAtt AppInstance.PublicIpAddress
+    Description: Instance public IP. If a static IP is enabled, use the StaticIp output below.
+
+  StaticIpAddress:
+    Condition: UseStaticIp
+    Value: !GetAtt AppStaticIp.IpAddress
+    Description: Static IPv4 address attached to the Lightsail instance.
+
+  AppUrl:
+    Value: !If
+      - UseStaticIp
+      - !Sub 'http://${AppStaticIp.IpAddress}'
+      - !Sub 'http://${AppInstance.PublicIpAddress}'
+    Description: Frontend URL.
+
+  ApiUrl:
+    Value: !If
+      - UseStaticIp
+      - !Sub 'http://${AppStaticIp.IpAddress}:8000'
+      - !Sub 'http://${AppInstance.PublicIpAddress}:8000'
+    Description: Backend URL.
+
+  DeployCommand:
+    Value: ssh ec2-user@<instance-ip> sudo /usr/local/bin/deploy-psich-ai
+    Description: Re-run this on the instance after pushing code changes.
+
+  BucketName:
+    Condition: UseBucket
+    Value: !Ref AppBucket
+    Description: Optional Lightsail bucket name.

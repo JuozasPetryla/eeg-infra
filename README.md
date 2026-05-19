@@ -52,3 +52,74 @@ Refer to usage of each service in their invidual repo readme.md.
 - BE - https://github.com/JuozasPetryla/eeg-be
 - FE - https://github.com/JuozasPetryla/eeg-fe
 - ML-pipeline - https://github.com/JuozasPetryla/eeg-ml-pipeline
+
+## AWS Lightsail
+
+The simplest AWS deployment in this repo is a single Lightsail VM managed by CloudFormation:
+
+- Template: `aws/lightsail-single-node.yaml`
+- Runtime compose file: `docker-compose.aws.yml`
+
+This setup is intentionally optimized for simplicity and low cost:
+
+- one Lightsail Linux instance
+- Docker installed by instance launch script
+- repos cloned directly from GitHub on first boot
+- frontend exposed on port `80`
+- backend exposed on port `8000`
+- Postgres and MinIO stay internal to the VM
+
+### Deploy
+
+From `eeg-infra/`:
+
+```bash
+aws cloudformation deploy \
+  --region us-east-1 \
+  --stack-name psich-ai-dev \
+  --template-file aws/lightsail-single-node.yaml \
+  --parameter-overrides \
+    ProjectName=psich-ai-dev \
+    GitHubOwner=JuozasPetryla \
+    GitBranch=main \
+    BundleId=small_3_0 \
+    CreateStaticIp=true \
+    CreateBucket=false
+```
+
+Recommended bundle:
+
+- `small_3_0` for the best price/performance starting point
+
+Cheaper but riskier:
+
+- `micro_3_0` if you only need very light short-lived testing
+
+### Inspect outputs
+
+```bash
+aws cloudformation describe-stacks \
+  --region us-east-1 \
+  --stack-name psich-ai-dev \
+  --query "Stacks[0].Outputs"
+```
+
+### Re-deploy code after pushing changes
+
+SSH to the instance and run:
+
+```bash
+sudo /usr/local/bin/deploy-psich-ai
+```
+
+### Stop billing
+
+Lightsail instances still bill while stopped. To stop compute billing, delete the stack:
+
+```bash
+aws cloudformation delete-stack \
+  --region us-east-1 \
+  --stack-name psich-ai-dev
+```
+
+If you need to preserve data before deleting, create a manual snapshot first in Lightsail.
