@@ -55,6 +55,9 @@ services:
       S3_ACCESS_KEY: minio
       S3_SECRET_KEY: minio12345
       S3_BUCKET: eeg
+      DEV_AUTH_BYPASS: "true"
+      DEV_AUTH_DEFAULT_EMAIL: doctor@example.com
+      UVICORN_RELOAD: "true"
     ports:
       - "8000:8000"
     depends_on:
@@ -125,6 +128,7 @@ services:
     container_name: eeg-fe
     environment:
       VITE_API_BASE_URL: http://eeg-be:8000
+      VITE_DEV_AUTH_BYPASS_EMAIL: doctor@example.com
     ports:
       - "5173:5173"
     depends_on:

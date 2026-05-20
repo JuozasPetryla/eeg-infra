@@ -49,6 +49,12 @@ Parameters:
     AllowedValues: ['true', 'false']
     Description: Attach a static IPv4 address to the instance.
 
+  ExposeApiPort:
+    Type: String
+    Default: 'false'
+    AllowedValues: ['true', 'false']
+    Description: Expose backend port 8000 publicly. Keep false unless you need direct API access.
+
   CreateBucket:
     Type: String
     Default: 'false'
@@ -67,6 +73,7 @@ Parameters:
 Conditions:
   HasKeyPair: !Not [!Equals [!Ref KeyPairName, '']]
   UseStaticIp: !Equals [!Ref CreateStaticIp, 'true']
+  UseApiPort: !Equals [!Ref ExposeApiPort, 'true']
   UseBucket: !Equals [!Ref CreateBucket, 'true']
 
 Resources:
@@ -95,14 +102,17 @@ Resources:
             FromPort: 80
             ToPort: 80
             Protocol: tcp
-          - AccessDirection: inbound
-            AccessType: Public
-            CommonName: API
-            Cidrs: ['0.0.0.0/0']
-            Ipv6Cidrs: ['::/0']
-            FromPort: 8000
-            ToPort: 8000
-            Protocol: tcp
+          - !If
+            - UseApiPort
+            - AccessDirection: inbound
+              AccessType: Public
+              CommonName: API
+              Cidrs: ['0.0.0.0/0']
+              Ipv6Cidrs: ['::/0']
+              FromPort: 8000
+              ToPort: 8000
+              Protocol: tcp
+            - !Ref 'AWS::NoValue'
       Tags:
         - Key: Project
           Value: !Ref ProjectName
@@ -130,15 +140,15 @@ Resources:
 
           clone_or_update() {
             local repo="$1"
-            local target="${BASE_DIR}/${repo}"
-            local url="https://github.com/${GitHubOwner}/${repo}.git"
+            local target="${!BASE_DIR}/${!repo}"
+            local url="https://github.com/${GitHubOwner}/${!repo}.git"
 
-            if [ ! -d "${target}/.git" ]; then
-              git clone --depth 1 --branch "${GitBranch}" "${url}" "${target}"
+            if [ ! -d "${!target}/.git" ]; then
+              git clone --depth 1 --branch "${GitBranch}" "${!url}" "${!target}"
             else
-              git -C "${target}" fetch origin "${GitBranch}"
-              git -C "${target}" checkout "${GitBranch}"
-              git -C "${target}" reset --hard "origin/${GitBranch}"
+              git -C "${!target}" fetch origin "${GitBranch}"
+              git -C "${!target}" checkout "${GitBranch}"
+              git -C "${!target}" reset --hard "origin/${GitBranch}"
             fi
           }
 
@@ -147,7 +157,7 @@ Resources:
           clone_or_update eeg-infra
           clone_or_update eeg-ml-pipeline
 
-          docker compose -f "${BASE_DIR}/eeg-infra/docker-compose.aws.yml" up --build -d
+          docker compose -f "${!BASE_DIR}/eeg-infra/docker-compose.aws.yml" up --build -d --remove-orphans
           SCRIPT
 
           chmod +x /usr/local/bin/deploy-psich-ai
@@ -198,11 +208,12 @@ Outputs:
     Description: Frontend URL.
 
   ApiUrl:
+    Condition: UseApiPort
     Value: !If
       - UseStaticIp
       - !Sub 'http://${AppStaticIp.IpAddress}:8000'
       - !Sub 'http://${AppInstance.PublicIpAddress}:8000'
-    Description: Backend URL.
+    Description: Backend URL when ExposeApiPort is enabled.
 
   DeployCommand:
     Value: ssh ec2-user@<instance-ip> sudo /usr/local/bin/deploy-psich-ai

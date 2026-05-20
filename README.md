@@ -66,7 +66,7 @@ This setup is intentionally optimized for simplicity and low cost:
 - Docker installed by instance launch script
 - repos cloned directly from GitHub on first boot
 - frontend exposed on port `80`
-- backend exposed on port `8000`
+- backend kept private by default and reverse-proxied through the frontend container
 - Postgres and MinIO stay internal to the VM
 
 ### Deploy
@@ -84,16 +84,21 @@ aws cloudformation deploy \
     GitBranch=main \
     BundleId=small_3_0 \
     CreateStaticIp=true \
+    ExposeApiPort=false \
     CreateBucket=false
 ```
 
 Recommended bundle:
 
-- `small_3_0` for the best price/performance starting point
+- `small_3_0` for the best simplicity/cost balance for a short-lived tester deployment
 
 Cheaper but riskier:
 
 - `micro_3_0` if you only need very light short-lived testing
+
+Safer upgrade if the ML pipeline or concurrent testers feel memory-constrained:
+
+- `medium_3_0`
 
 ### Inspect outputs
 
